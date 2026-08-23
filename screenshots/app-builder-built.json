@@ -1,0 +1,38 @@
+{
+  "url": "http://127.0.0.1:8081/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "Focus Physiology",
+      "hasCanvas": false,
+      "bodyTextLen": 326,
+      "bodyTextHash": "238eca21fd9d8d5efdd0355c557a5cef1464ab4738051e3ff7cce4f9002cbb88",
+      "bodyTextPrefix": "Valley calm Walk, read, remember. Focus Physiology Dashboard Sto",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "Focus Physiology",
+      "hasCanvas": false,
+      "bodyTextLen": 253,
+      "bodyTextHash": "a48ef4faf4596d6ee7cb0000bf2c57dbf9ed10e406dffe2990caae2d91288034",
+      "bodyTextPrefix": "Valley calm Walk, read, remember. Lore-Craft Lesson Storyteller ",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-built.json",
+  "divergesFromBaseline": false,
+  "baselineReasons": []
+}
