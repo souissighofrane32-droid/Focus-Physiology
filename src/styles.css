@@ -63,3 +63,20 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+@keyframes stress-breathe {
+  0%,
+  100% {
+    transform: scale(0.86);
+  }
+  40% {
+    transform: scale(1);
+  }
+  55% {
+    transform: scale(1);
+  }
+}
+
+.stress-breathe {
+  animation: stress-breathe 8s ease-in-out infinite;
+}

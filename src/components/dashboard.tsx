@@ -1,5 +1,6 @@
 import { Pause, Play } from "lucide-react";
 import { useEffect } from "react";
+import { StressSensorCard } from "@/components/stress-sensor";
 import { useAppStore } from "@/store/app-store";
 
 export function Dashboard() {
@@ -8,6 +9,7 @@ export function Dashboard() {
   const player = useAppStore((s) => s.player);
   const quest = useAppStore((s) => s.quest);
   const setTab = useAppStore((s) => s.setTab);
+  const stress = useAppStore((s) => s.stress);
 
   useEffect(() => {
     if (!pomodoro.run) return;
@@ -65,6 +67,9 @@ export function Dashboard() {
               ? `${quest.chapters.length} chapters · ${quest.questions.length} challenges`
               : "Open Storyteller, add notes, then transform."}
           </p>
+          {stress.on && stress.level >= 72 && (
+            <p className="mt-2 text-xs text-danger">Pulse is up — take a breath before the farm.</p>
+          )}
           <button
             type="button"
             onClick={() => setTab(quest ? "rpg" : "story")}
@@ -74,6 +79,7 @@ export function Dashboard() {
           </button>
         </div>
       </div>
+      <StressSensorCard />
     </div>
   );
 }

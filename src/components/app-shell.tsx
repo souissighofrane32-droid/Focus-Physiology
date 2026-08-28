@@ -10,7 +10,9 @@ import { Dashboard } from "@/components/dashboard";
 import { FarmGame } from "@/components/farm-game";
 import { StakeArena } from "@/components/stake-arena";
 import { Storyteller } from "@/components/storyteller";
+import { StressBar } from "@/components/stress-sensor";
 import { TaskBoard } from "@/components/task-board";
+import { calmMusic } from "@/lib/calm-music";
 import { hydrateAppStore, useAppStore, type TabId } from "@/store/app-store";
 
 const NAV: { id: TabId; label: string; icon: typeof BookOpen }[] = [
@@ -27,15 +29,14 @@ export function AppShell() {
 
   useEffect(() => {
     hydrateAppStore();
+    return calmMusic.attach();
   }, []);
 
   return (
     <div className="flex min-h-dvh flex-col bg-paper text-ink">
-      <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-card/80 px-4 py-2 backdrop-blur">
-        <span className="rounded-full bg-leaf/15 px-3 py-1 text-xs font-medium text-leaf">
-          Valley calm
-        </span>
-        <span className="text-xs text-muted">Walk, read, remember.</span>
+      <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-card/80 px-3 py-2 backdrop-blur sm:px-4">
+        <StressBar />
+        <span className="hidden text-xs text-muted lg:inline">Walk, read, remember.</span>
       </header>
 
       <div className="flex flex-1 overflow-hidden">

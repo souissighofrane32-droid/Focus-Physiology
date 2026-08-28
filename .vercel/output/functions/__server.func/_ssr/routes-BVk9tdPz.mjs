@@ -1,9 +1,9 @@
 import { i as __toESM } from "../_runtime.mjs";
 import { R as require_react, v as require_jsx_runtime } from "../_libs/@tanstack/react-router+[...].mjs";
 import { n as TSS_SERVER_FUNCTION, r as getServerFnById, t as createServerFn } from "./ssr.mjs";
-import { _ as ChevronDown, a as ScrollText, c as Pause, d as LayoutDashboard, f as Heart, g as ChevronLeft, h as ChevronRight, i as Sword, l as Notebook, m as ChevronUp, n as Trophy, o as Plus, p as FileText, s as Play, t as Upload, u as LoaderCircle, v as Camera, y as BookOpen } from "../_libs/lucide-react.mjs";
+import { C as BookOpen, S as Camera, _ as FileText, b as ChevronLeft, c as Plus, d as Notebook, f as Music, g as HeartPulse, h as Heart, i as Trophy, l as Play, m as LayoutDashboard, n as Volume2, o as Sword, p as LoaderCircle, r as Upload, s as ScrollText, t as VolumeX, u as Pause, v as ChevronUp, w as Activity, x as ChevronDown, y as ChevronRight } from "../_libs/lucide-react.mjs";
 import { t as create } from "../_libs/zustand.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-Da1T_MhO.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-BVk9tdPz.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var STORAGE_KEY = "focus-physiology-v1";
@@ -32,6 +32,13 @@ var defaultTasks = [
 		status: "mastered"
 	}
 ];
+var defaultStress = {
+	on: false,
+	level: 0,
+	bpm: null,
+	label: "off",
+	face: false
+};
 var useAppStore = create((set) => ({
 	tab: "story",
 	setTab: (tab) => set({ tab }),
@@ -52,7 +59,15 @@ var useAppStore = create((set) => ({
 		s: 0,
 		run: false
 	},
-	setPomodoro: (p) => set((s) => ({ pomodoro: typeof p === "function" ? p(s.pomodoro) : p }))
+	setPomodoro: (p) => set((s) => ({ pomodoro: typeof p === "function" ? p(s.pomodoro) : p })),
+	stress: defaultStress,
+	setStress: (stress) => set({ stress }),
+	musicPlaying: false,
+	setMusicPlaying: (musicPlaying) => set({ musicPlaying }),
+	musicMuted: false,
+	setMusicMuted: (musicMuted) => set({ musicMuted }),
+	musicManual: false,
+	setMusicManual: (musicManual) => set({ musicManual })
 }));
 function hydrateAppStore() {
 	if (typeof window === "undefined") return;
@@ -80,12 +95,800 @@ if (typeof window !== "undefined") useAppStore.subscribe((s) => {
 		}));
 	} catch {}
 });
+var CHORDS = [
+	[
+		130.81,
+		196,
+		329.63,
+		493.88
+	],
+	[
+		110,
+		164.81,
+		261.63,
+		392
+	],
+	[
+		87.31,
+		174.61,
+		220,
+		329.63
+	],
+	[
+		98,
+		146.83,
+		196,
+		293.66
+	]
+];
+var BELLS = [
+	261.63,
+	293.66,
+	329.63,
+	392,
+	440,
+	523.25
+];
+var CalmMusic = class {
+	ctx = null;
+	master = null;
+	bus = null;
+	playing = false;
+	muted = false;
+	manual = false;
+	latched = false;
+	chord = 0;
+	voices = [];
+	chordTimer = 0;
+	schedTimer = 0;
+	nextBell = 0;
+	unsub = null;
+	built = false;
+	unlock() {
+		this.ensure();
+		const ctx = this.ctx;
+		if (ctx && ctx.state === "suspended") ctx.resume();
+	}
+	ensure() {
+		if (this.ctx) return;
+		const ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "playback" });
+		this.ctx = ctx;
+		const master = ctx.createGain();
+		master.gain.value = .42;
+		master.connect(ctx.destination);
+		this.master = master;
+		const bus = ctx.createGain();
+		bus.gain.value = 0;
+		bus.connect(master);
+		this.bus = bus;
+		this.wireProbe();
+	}
+	wireProbe() {
+		window.__calmMusic = {
+			isPlaying: () => this.playing,
+			isMuted: () => this.muted,
+			start: () => this.start(true),
+			stop: () => this.stop(),
+			unlock: () => this.unlock()
+		};
+	}
+	attach() {
+		if (this.unsub) return this.unsub;
+		const onVis = () => {
+			if (document.visibilityState === "visible") this.unlock();
+		};
+		document.addEventListener("visibilitychange", onVis);
+		this.unsub = useAppStore.subscribe((s) => {
+			if (s.musicMuted !== this.muted) {
+				this.muted = s.musicMuted;
+				this.applyMute();
+			}
+			const high = s.stress.on && (s.stress.level >= 58 || s.stress.label === "elevated" || s.stress.label === "high");
+			const released = !s.stress.on || s.stress.level < 42;
+			if (s.musicManual && !this.playing) {
+				this.start(true);
+				return;
+			}
+			if (high) {
+				this.latched = true;
+				if (!this.playing) this.start(false);
+				return;
+			}
+			if (this.playing && !this.manual && (released || !s.stress.on)) {
+				this.latched = false;
+				this.stop();
+			}
+		});
+		return () => {
+			document.removeEventListener("visibilitychange", onVis);
+			this.unsub?.();
+			this.unsub = null;
+		};
+	}
+	start(manual) {
+		this.ensure();
+		this.unlock();
+		if (manual) this.manual = true;
+		if (this.playing) {
+			this.applyMute();
+			return;
+		}
+		this.playing = true;
+		this.buildGraph();
+		const ctx = this.ctx;
+		const bus = this.bus;
+		bus.gain.cancelScheduledValues(ctx.currentTime);
+		bus.gain.setTargetAtTime(this.muted ? 0 : 1, ctx.currentTime, 1.4);
+		this.nextBell = ctx.currentTime + 1.6;
+		this.tickBells();
+		this.chordTimer = window.setInterval(() => this.nextChord(), 1e4);
+		useAppStore.getState().setMusicPlaying(true);
+	}
+	stop() {
+		if (!this.playing) return;
+		this.playing = false;
+		this.manual = false;
+		const ctx = this.ctx;
+		const bus = this.bus;
+		if (ctx && bus) {
+			bus.gain.cancelScheduledValues(ctx.currentTime);
+			bus.gain.setTargetAtTime(0, ctx.currentTime, .9);
+		}
+		window.clearInterval(this.chordTimer);
+		window.clearTimeout(this.schedTimer);
+		useAppStore.getState().setMusicPlaying(false);
+		useAppStore.getState().setMusicManual(false);
+	}
+	setMuted(muted) {
+		this.muted = muted;
+		useAppStore.getState().setMusicMuted(muted);
+		this.applyMute();
+	}
+	applyMute() {
+		const ctx = this.ctx;
+		const bus = this.bus;
+		if (!ctx || !bus || !this.playing) return;
+		bus.gain.cancelScheduledValues(ctx.currentTime);
+		bus.gain.setTargetAtTime(this.muted ? 0 : 1, ctx.currentTime, .08);
+	}
+	buildGraph() {
+		if (this.built || !this.ctx || !this.bus) return;
+		const ctx = this.ctx;
+		const filter = ctx.createBiquadFilter();
+		filter.type = "lowpass";
+		filter.frequency.value = 680;
+		filter.Q.value = .65;
+		filter.connect(this.bus);
+		const fLfo = ctx.createOscillator();
+		fLfo.frequency.value = .05;
+		const fGain = ctx.createGain();
+		fGain.gain.value = 240;
+		fLfo.connect(fGain);
+		fGain.connect(filter.frequency);
+		fLfo.start();
+		const tones = CHORDS[0];
+		this.voices = tones.map((hz, i) => {
+			const osc = ctx.createOscillator();
+			osc.type = i < 2 ? "sine" : "triangle";
+			osc.frequency.value = hz;
+			const g = ctx.createGain();
+			g.gain.value = i === 0 ? .18 : i === 1 ? .14 : .09;
+			const lfo = ctx.createOscillator();
+			lfo.frequency.value = .06 + i * .02;
+			const lg = ctx.createGain();
+			lg.gain.value = 5 + i;
+			lfo.connect(lg);
+			lg.connect(osc.detune);
+			osc.connect(g);
+			g.connect(filter);
+			osc.start();
+			lfo.start();
+			return osc;
+		});
+		const sub = ctx.createOscillator();
+		sub.type = "sine";
+		sub.frequency.value = 65.41;
+		const sg = ctx.createGain();
+		sg.gain.value = .07;
+		sub.connect(sg);
+		sg.connect(this.bus);
+		sub.start();
+		this.voices.push(sub);
+		const noise = ctx.createBufferSource();
+		const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+		const ch = buf.getChannelData(0);
+		let last = 0;
+		for (let i = 0; i < ch.length; i++) {
+			const white = Math.random() * 2 - 1;
+			last = last * .97 + white * .03;
+			ch[i] = last;
+		}
+		noise.buffer = buf;
+		noise.loop = true;
+		const bp = ctx.createBiquadFilter();
+		bp.type = "bandpass";
+		bp.frequency.value = 420;
+		bp.Q.value = .5;
+		const ng = ctx.createGain();
+		ng.gain.value = .045;
+		noise.connect(bp);
+		bp.connect(ng);
+		ng.connect(this.bus);
+		noise.start();
+		this.built = true;
+	}
+	nextChord() {
+		if (!this.playing || !this.ctx) return;
+		this.chord = (this.chord + 1) % CHORDS.length;
+		const tones = CHORDS[this.chord];
+		const t = this.ctx.currentTime;
+		for (let i = 0; i < tones.length; i++) {
+			const osc = this.voices[i];
+			if (!osc) continue;
+			osc.frequency.setTargetAtTime(tones[i], t, 2.2);
+		}
+		const sub = this.voices[4];
+		if (sub) sub.frequency.setTargetAtTime(tones[0] / 2, t, 2.2);
+	}
+	tickBells() {
+		if (!this.playing || !this.ctx || !this.bus) return;
+		const now = this.ctx.currentTime;
+		while (this.nextBell < now + 1.4) {
+			this.fireBell(this.nextBell);
+			this.nextBell += 2.6 + Math.random() * 2.4;
+		}
+		this.schedTimer = window.setTimeout(() => this.tickBells(), 400);
+	}
+	fireBell(when) {
+		const ctx = this.ctx;
+		const bus = this.bus;
+		if (!ctx || !bus) return;
+		const osc = ctx.createOscillator();
+		osc.type = "sine";
+		osc.frequency.value = BELLS[Math.random() * BELLS.length | 0];
+		const g = ctx.createGain();
+		g.gain.setValueAtTime(1e-4, when);
+		g.gain.exponentialRampToValueAtTime(.07, when + .03);
+		g.gain.exponentialRampToValueAtTime(1e-4, when + 2.8);
+		osc.connect(g);
+		g.connect(bus);
+		osc.start(when);
+		osc.stop(when + 3);
+		osc.onended = () => {
+			osc.disconnect();
+			g.disconnect();
+		};
+	}
+};
+var calmMusic = new CalmMusic();
+var PROC_W = 160;
+var PROC_H = 120;
+var SAMPLE_MS = 40;
+var WARMUP_MS = 3500;
+var BUF = 160;
+function clamp(n, a, b) {
+	return Math.max(a, Math.min(b, n));
+}
+function meanStd(xs) {
+	if (!xs.length) return {
+		mean: 0,
+		std: 0
+	};
+	const mean = xs.reduce((s, v) => s + v, 0) / xs.length;
+	const v = xs.reduce((s, x) => s + (x - mean) ** 2, 0) / xs.length;
+	return {
+		mean,
+		std: Math.sqrt(v)
+	};
+}
+var StressEngine = class {
+	stream = null;
+	video = null;
+	canvas = null;
+	ctx = null;
+	raf = 0;
+	running = false;
+	lastSample = 0;
+	startedAt = 0;
+	greens = [];
+	acBuf = [];
+	ema = 0;
+	emaReady = false;
+	peaks = [];
+	lastPeakAt = 0;
+	prevGray = null;
+	motion = 0;
+	level = 28;
+	bpm = null;
+	face = false;
+	roi = {
+		x: 48,
+		y: 16,
+		w: 64,
+		h: 32
+	};
+	faceTick = 0;
+	preview = null;
+	mini = null;
+	detector = null;
+	ensureDom() {
+		if (this.video) return;
+		const video = document.createElement("video");
+		video.playsInline = true;
+		video.muted = true;
+		video.autoplay = true;
+		video.setAttribute("playsinline", "true");
+		this.video = video;
+		const canvas = document.createElement("canvas");
+		canvas.width = PROC_W;
+		canvas.height = PROC_H;
+		this.canvas = canvas;
+		this.ctx = canvas.getContext("2d", { willReadFrequently: true });
+	}
+	bindPreview(el) {
+		this.preview = el;
+		this.pipe(el);
+	}
+	bindMini(el) {
+		this.mini = el;
+		this.pipe(el);
+	}
+	pipe(el) {
+		if (!el) return;
+		if (this.stream) {
+			el.srcObject = this.stream;
+			el.play().catch(() => {});
+		}
+	}
+	async start() {
+		if (this.running) return;
+		this.ensureDom();
+		try {
+			this.stream = await navigator.mediaDevices.getUserMedia({
+				video: {
+					facingMode: "user",
+					width: 320,
+					height: 240,
+					frameRate: { ideal: 24 }
+				},
+				audio: false
+			});
+		} catch {
+			this.publish({
+				on: false,
+				level: 0,
+				bpm: null,
+				label: "off",
+				face: false
+			});
+			throw new Error("Camera permission was denied.");
+		}
+		const video = this.video;
+		video.srcObject = this.stream;
+		await video.play().catch(() => {});
+		this.pipe(this.preview);
+		this.pipe(this.mini);
+		this.running = true;
+		this.startedAt = performance.now();
+		this.greens = [];
+		this.acBuf = [];
+		this.peaks = [];
+		this.emaReady = false;
+		this.level = 28;
+		this.bpm = null;
+		this.prevGray = null;
+		this.publish({
+			on: true,
+			level: 0,
+			bpm: null,
+			label: "warming",
+			face: false
+		});
+		const tick = (now) => {
+			if (!this.running) return;
+			this.sample(now);
+			this.raf = requestAnimationFrame(tick);
+		};
+		this.raf = requestAnimationFrame(tick);
+	}
+	async stop() {
+		this.running = false;
+		cancelAnimationFrame(this.raf);
+		this.stream?.getTracks().forEach((t) => t.stop());
+		this.stream = null;
+		if (this.video) this.video.srcObject = null;
+		if (this.preview) this.preview.srcObject = null;
+		if (this.mini) this.mini.srcObject = null;
+		this.publish({
+			on: false,
+			level: 0,
+			bpm: null,
+			label: "off",
+			face: false
+		});
+	}
+	publish(s) {
+		useAppStore.getState().setStress(s);
+	}
+	sample(now) {
+		if (now - this.lastSample < SAMPLE_MS) return;
+		this.lastSample = now;
+		const video = this.video;
+		const ctx = this.ctx;
+		if (!video || !ctx || video.readyState < 2) return;
+		ctx.drawImage(video, 0, 0, PROC_W, PROC_H);
+		const data = ctx.getImageData(0, 0, PROC_W, PROC_H).data;
+		this.faceTick++;
+		if (this.faceTick % 12 === 1) this.updateFace(video);
+		const roi = this.roi;
+		let gSum = 0;
+		let rSum = 0;
+		let n = 0;
+		for (let y = roi.y | 0; y < roi.y + roi.h; y += 2) for (let x = roi.x | 0; x < roi.x + roi.w; x += 2) {
+			if (x < 0 || y < 0 || x >= PROC_W || y >= PROC_H) continue;
+			const i = (y * PROC_W + x) * 4;
+			rSum += data[i];
+			gSum += data[i + 1];
+			n++;
+		}
+		if (!n) return;
+		const g = gSum / n;
+		const r = rSum / n;
+		const skinish = r > 40 && g > 30 && r > g * .7;
+		this.face = skinish;
+		if (!this.emaReady) {
+			this.ema = g;
+			this.emaReady = true;
+		} else this.ema = this.ema * .92 + g * .08;
+		const ac = g - this.ema;
+		this.greens.push(g);
+		this.acBuf.push(ac);
+		if (this.greens.length > BUF) {
+			this.greens.shift();
+			this.acBuf.shift();
+		}
+		this.motion = this.frameMotion(data);
+		const { std } = meanStd(this.acBuf.slice(-80));
+		const last = this.acBuf.at(-1) ?? 0;
+		const prev = this.acBuf.at(-2) ?? 0;
+		const prev2 = this.acBuf.at(-3) ?? 0;
+		if (prev > last && prev > prev2 && prev > std * .55 && now - this.lastPeakAt > 420) {
+			this.lastPeakAt = now;
+			this.peaks.push(now);
+			if (this.peaks.length > 10) this.peaks.shift();
+		}
+		if (this.peaks.length >= 3) {
+			const iv = [];
+			for (let i = 1; i < this.peaks.length; i++) iv.push(this.peaks[i] - this.peaks[i - 1]);
+			const { mean, std: ivStd } = meanStd(iv);
+			if (mean > 400 && mean < 1500) this.bpm = Math.round(6e4 / mean);
+			else this.bpm = this.bpm;
+			this._ivStd = ivStd / 1e3;
+		}
+		const warming = now - this.startedAt < WARMUP_MS;
+		const lit = r + g > 90 && std > .12;
+		let label = "warming";
+		let raw = this.level;
+		if (!warming) {
+			if (!lit) {
+				label = "need-light";
+				raw = this.level * .96 + .88;
+			} else {
+				const hrScore = clamp(((this.bpm ?? 72) - 64) / 52, 0, 1);
+				const motionScore = clamp(this.motion / 14, 0, 1);
+				const hrvScore = clamp(this._ivStd / .22, 0, 1);
+				raw = 100 * (.42 * hrScore + .38 * motionScore + .2 * hrvScore);
+				if (raw < 32) label = "calm";
+				else if (raw < 58) label = "steady";
+				else if (raw < 78) label = "elevated";
+				else label = "high";
+			}
+		}
+		this.level = this.level * .82 + raw * .18;
+		this.publish({
+			on: true,
+			level: Math.round(this.level),
+			bpm: warming ? null : this.bpm,
+			label,
+			face: this.face
+		});
+	}
+	_ivStd = .12;
+	frameMotion(data) {
+		const gw = 40;
+		const gh = 30;
+		const gray = /* @__PURE__ */ new Float32Array(1200);
+		const sx = PROC_W / gw;
+		const sy = PROC_H / gh;
+		for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
+			const px = Math.min(159, x * sx | 0);
+			const i = (Math.min(119, y * sy | 0) * PROC_W + px) * 4;
+			gray[y * gw + x] = data[i] * .3 + data[i + 1] * .59 + data[i + 2] * .11;
+		}
+		let diff = 0;
+		if (this.prevGray && this.prevGray.length === gray.length) {
+			for (let i = 0; i < gray.length; i++) diff += Math.abs(gray[i] - this.prevGray[i]);
+			diff /= gray.length;
+		}
+		this.prevGray = gray;
+		return diff;
+	}
+	async updateFace(video) {
+		const w = video.videoWidth;
+		const h = video.videoHeight;
+		if (!w || !h) return;
+		try {
+			const wFD = window.FaceDetector;
+			if (wFD && !this.detector) this.detector = new wFD({
+				fastMode: true,
+				maxDetectedFaces: 1
+			});
+			if (!this.detector) return;
+			const b = (await this.detector.detect(video))[0]?.boundingBox;
+			if (!b) return;
+			const sx = PROC_W / w;
+			const sy = PROC_H / h;
+			this.roi = {
+				x: clamp((b.x + b.width * .22) * sx, 4, 140),
+				y: clamp((b.y + b.height * .1) * sy, 4, 104),
+				w: clamp(b.width * .56 * sx, 24, 80),
+				h: clamp(b.height * .2 * sy, 12, 40)
+			};
+		} catch {}
+	}
+};
+var stressEngine = new StressEngine();
+var LABEL = {
+	off: "Off",
+	warming: "Reading pulse…",
+	calm: "Valley calm",
+	steady: "Focused",
+	elevated: "Elevated",
+	high: "High stress",
+	"need-light": "Need more light"
+};
+function StressSensorCard() {
+	const stress = useAppStore((s) => s.stress);
+	const musicPlaying = useAppStore((s) => s.musicPlaying);
+	const musicMuted = useAppStore((s) => s.musicMuted);
+	const videoRef = (0, import_react.useRef)(null);
+	const [err, setErr] = (0, import_react.useState)("");
+	const [busy, setBusy] = (0, import_react.useState)(false);
+	(0, import_react.useEffect)(() => {
+		stressEngine.bindPreview(videoRef.current);
+		return () => stressEngine.bindPreview(null);
+	}, []);
+	const toggle = async () => {
+		calmMusic.unlock();
+		setErr("");
+		setBusy(true);
+		try {
+			if (stress.on) await stressEngine.stop();
+			else await stressEngine.start();
+		} catch (e) {
+			setErr(e instanceof Error ? e.message : "Camera unavailable.");
+		} finally {
+			setBusy(false);
+		}
+	};
+	const fill = stress.label === "high" || stress.level >= 78 ? "bg-danger" : stress.level >= 58 ? "bg-coral" : "bg-leaf";
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+		className: "rounded-[var(--radius-xl)] border border-line bg-card p-5 shadow-[0_10px_30px_rgba(61,44,46,0.06)] sm:p-6",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "flex flex-wrap items-start justify-between gap-3",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "flex items-start gap-3",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "flex size-10 items-center justify-center rounded-[var(--radius-md)] bg-coral text-coral-ink",
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(HeartPulse, { className: "size-5" })
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+					className: "font-display text-lg font-semibold",
+					children: "Webcam stress sensor"
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: "text-sm text-muted",
+					children: "Reads pulse from your face. When stress rises, a valley lullaby fades in."
+				})] })]
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+				type: "button",
+				disabled: busy,
+				onClick: () => void toggle(),
+				className: "rounded-full bg-coral px-4 py-2 text-sm font-semibold text-coral-ink disabled:opacity-60",
+				children: stress.on ? "Stop sensor" : "Start sensor"
+			})]
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "mt-4 grid gap-4 md:grid-cols-[220px_1fr]",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "relative overflow-hidden rounded-[var(--radius-lg)] border border-line bg-ink",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("video", {
+						ref: videoRef,
+						muted: true,
+						playsInline: true,
+						className: "aspect-[4/3] w-full object-cover",
+						style: { transform: "scaleX(-1)" }
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "pointer-events-none absolute inset-0 flex items-center justify-center",
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "h-[52%] w-[46%] rounded-full border-2 border-coral-ink/70" })
+					}),
+					!stress.on && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "absolute inset-0 flex items-center justify-center bg-ink/55 px-3 text-center text-xs text-coral-ink",
+						children: "Sit in the light. Keep your face in the oval."
+					})
+				]
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "flex flex-col justify-center gap-3",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex items-end justify-between gap-3",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "text-xs font-medium tracking-wide text-muted uppercase",
+							children: "Stress"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "font-display text-4xl tabular-nums text-ink",
+							children: stress.on ? stress.level : "—"
+						})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "text-right",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-xs font-medium tracking-wide text-muted uppercase",
+								children: "Pulse"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "font-display text-2xl tabular-nums",
+								children: [stress.bpm ? `${stress.bpm}` : "—", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "ml-1 text-sm text-muted",
+									children: "bpm"
+								})]
+							})]
+						})]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "h-2.5 overflow-hidden rounded-full bg-paper-2",
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: `h-full ${fill} transition-[width] duration-300`,
+							style: { width: `${stress.on ? stress.level : 0}%` }
+						})
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex items-center gap-2 text-sm",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Activity, { className: "size-4 text-leaf" }),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "font-medium",
+								children: LABEL[stress.label]
+							}),
+							stress.on && !stress.face && stress.label !== "warming" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "text-muted",
+								children: "· face the camera"
+							})
+						]
+					}),
+					err && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "text-sm text-danger",
+						children: err
+					}),
+					(stress.label === "elevated" || stress.label === "high" || musicPlaying) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(BreatheCoach, {
+						playing: musicPlaying,
+						muted: musicMuted
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex flex-wrap gap-2",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+							type: "button",
+							onClick: () => {
+								calmMusic.unlock();
+								if (musicPlaying && !stress.on) calmMusic.stop();
+								else useAppStore.getState().setMusicManual(true);
+							},
+							className: "inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-xs font-medium",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Music, { className: "size-3.5" }), musicPlaying && !stress.on ? "Stop sample" : "Play calm music"]
+						}), musicPlaying && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+							type: "button",
+							onClick: () => {
+								calmMusic.unlock();
+								calmMusic.setMuted(!musicMuted);
+							},
+							className: "inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-xs font-medium",
+							children: [musicMuted ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(VolumeX, { className: "size-3.5" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Volume2, { className: "size-3.5" }), musicMuted ? "Unmute" : "Mute"]
+						})]
+					})
+				]
+			})]
+		})]
+	});
+}
+function BreatheCoach({ playing, muted }) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: "flex items-center gap-3 rounded-[var(--radius-md)] border border-line bg-paper px-3 py-2",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "stress-breathe size-9 rounded-full bg-leaf/25 ring-2 ring-leaf/40" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+			className: "text-sm text-ink",
+			children: ["Breathe in 4 · hold 4 · out 6.", playing && !muted ? " Valley music is playing." : playing && muted ? " Music is muted." : " Music will fade in."]
+		})]
+	});
+}
+function StressBar() {
+	const stress = useAppStore((s) => s.stress);
+	const setTab = useAppStore((s) => s.setTab);
+	const musicPlaying = useAppStore((s) => s.musicPlaying);
+	const musicMuted = useAppStore((s) => s.musicMuted);
+	const miniRef = (0, import_react.useRef)(null);
+	const [busy, setBusy] = (0, import_react.useState)(false);
+	(0, import_react.useEffect)(() => {
+		stressEngine.bindMini(miniRef.current);
+		return () => stressEngine.bindMini(null);
+	}, []);
+	const toggle = async () => {
+		calmMusic.unlock();
+		setBusy(true);
+		try {
+			if (stress.on) await stressEngine.stop();
+			else await stressEngine.start();
+		} catch {
+			setTab("dashboard");
+		} finally {
+			setBusy(false);
+		}
+	};
+	const fill = stress.label === "high" || stress.level >= 78 ? "bg-danger" : stress.level >= 58 ? "bg-coral" : "bg-leaf";
+	const badge = stress.label === "off" ? "Valley calm" : stress.label === "warming" ? "Reading pulse" : stress.label === "need-light" ? "Need light" : stress.label === "high" ? "High stress" : stress.label === "elevated" ? "Elevated" : stress.label === "steady" ? "Focused" : "Valley calm";
+	const badgeClass = stress.label === "high" || stress.label === "elevated" ? "bg-danger/15 text-danger" : stress.label === "steady" ? "bg-coral/15 text-coral" : "bg-leaf/15 text-leaf";
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: "flex min-w-0 flex-1 items-center gap-2 sm:gap-3",
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+				type: "button",
+				onClick: () => setTab("dashboard"),
+				className: `shrink-0 rounded-full px-3 py-1 text-xs font-medium ${badgeClass}`,
+				children: badge
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "hidden h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-paper-2 sm:block md:max-w-48",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: `h-full ${fill} transition-[width] duration-300`,
+					style: { width: `${stress.on ? stress.level : 8}%` }
+				})
+			}),
+			stress.on && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+				className: "hidden text-xs tabular-nums text-muted sm:inline",
+				children: [stress.level, stress.bpm ? ` · ${stress.bpm} bpm` : ""]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("video", {
+				ref: miniRef,
+				muted: true,
+				playsInline: true,
+				className: `size-7 shrink-0 rounded-full object-cover ${stress.on ? "ring-1 ring-line" : "hidden"}`,
+				style: { transform: "scaleX(-1)" },
+				"aria-hidden": true
+			}),
+			musicPlaying && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+				type: "button",
+				"aria-label": musicMuted ? "Unmute calm music" : "Mute calm music",
+				onClick: () => {
+					calmMusic.unlock();
+					calmMusic.setMuted(!musicMuted);
+				},
+				className: "inline-flex shrink-0 items-center gap-1 rounded-full border border-line px-2.5 py-1 text-xs font-medium text-leaf",
+				children: [musicMuted ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(VolumeX, { className: "size-3.5" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Volume2, { className: "size-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "hidden sm:inline",
+					children: musicMuted ? "Muted" : "Music"
+				})]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+				type: "button",
+				disabled: busy,
+				onClick: () => void toggle(),
+				className: "shrink-0 rounded-full border border-line px-3 py-1 text-xs font-medium",
+				children: stress.on ? "Stop" : "Start sensor"
+			})
+		]
+	});
+}
 function Dashboard() {
 	const pomodoro = useAppStore((s) => s.pomodoro);
 	const setPomodoro = useAppStore((s) => s.setPomodoro);
 	const player = useAppStore((s) => s.player);
 	const quest = useAppStore((s) => s.quest);
 	const setTab = useAppStore((s) => s.setTab);
+	const stress = useAppStore((s) => s.stress);
 	(0, import_react.useEffect)(() => {
 		if (!pomodoro.run) return;
 		const t = window.setInterval(() => {
@@ -110,99 +913,107 @@ function Dashboard() {
 	}, [pomodoro.run, setPomodoro]);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "space-y-5",
-		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
-			className: "font-display text-2xl font-semibold text-ink",
-			children: "Focus Physiology"
-		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-			className: "text-sm text-muted",
-			children: "Study in a valley. Harvest what you remember."
-		})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-			className: "grid gap-4 md:grid-cols-3",
-			children: [
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "rounded-[var(--radius-xl)] border border-line bg-card p-5 text-center",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "text-xs font-medium tracking-wide text-muted uppercase",
-							children: "Focus timer"
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "mt-2 font-display text-4xl tabular-nums text-coral",
-							children: [
-								String(pomodoro.m).padStart(2, "0"),
-								":",
-								String(pomodoro.s).padStart(2, "0")
-							]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "button",
-							onClick: () => setPomodoro((p) => ({
-								...p,
-								run: !p.run
-							})),
-							className: "mt-4 inline-flex size-11 items-center justify-center rounded-full bg-coral text-coral-ink",
-							"aria-label": pomodoro.run ? "Pause timer" : "Start timer",
-							children: pomodoro.run ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Pause, { className: "size-4" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Play, { className: "size-4" })
-						})
-					]
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "rounded-[var(--radius-xl)] border border-line bg-card p-5 text-center",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "text-xs font-medium tracking-wide text-muted uppercase",
-							children: "Farmer"
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "mt-3 font-display text-2xl",
-							children: ["Lv. ", player.level]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "mt-2 h-2 overflow-hidden rounded-full bg-paper-2",
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-								className: "h-full bg-coral",
-								style: { width: `${player.xp / (player.level * 60) * 100}%` }
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
+				className: "font-display text-2xl font-semibold text-ink",
+				children: "Focus Physiology"
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "text-sm text-muted",
+				children: "Study in a valley. Harvest what you remember."
+			})] }),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "grid gap-4 md:grid-cols-3",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "rounded-[var(--radius-xl)] border border-line bg-card p-5 text-center",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-xs font-medium tracking-wide text-muted uppercase",
+								children: "Focus timer"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "mt-2 font-display text-4xl tabular-nums text-coral",
+								children: [
+									String(pomodoro.m).padStart(2, "0"),
+									":",
+									String(pomodoro.s).padStart(2, "0")
+								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: () => setPomodoro((p) => ({
+									...p,
+									run: !p.run
+								})),
+								className: "mt-4 inline-flex size-11 items-center justify-center rounded-full bg-coral text-coral-ink",
+								"aria-label": pomodoro.run ? "Pause timer" : "Start timer",
+								children: pomodoro.run ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Pause, { className: "size-4" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Play, { className: "size-4" })
 							})
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-							className: "mt-2 text-xs text-muted tabular-nums",
-							children: [
-								player.xp,
-								"/",
-								player.level * 60,
-								" XP · HP ",
-								player.hp,
-								"/",
-								player.maxHp
-							]
-						})
-					]
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "rounded-[var(--radius-xl)] border border-line bg-card p-5",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "text-xs font-medium tracking-wide text-muted uppercase",
-							children: "Current quest"
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-							className: "mt-3 font-display text-lg leading-snug",
-							children: quest ? quest.title : "No story yet"
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-							className: "mt-2 text-sm text-muted",
-							children: quest ? `${quest.chapters.length} chapters · ${quest.questions.length} challenges` : "Open Storyteller, add notes, then transform."
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "button",
-							onClick: () => setTab(quest ? "rpg" : "story"),
-							className: "mt-4 rounded-full bg-ink px-4 py-2 text-sm font-medium text-paper",
-							children: quest ? "Continue on the farm" : "Open Storyteller"
-						})
-					]
-				})
-			]
-		})]
+						]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "rounded-[var(--radius-xl)] border border-line bg-card p-5 text-center",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-xs font-medium tracking-wide text-muted uppercase",
+								children: "Farmer"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "mt-3 font-display text-2xl",
+								children: ["Lv. ", player.level]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "mt-2 h-2 overflow-hidden rounded-full bg-paper-2",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "h-full bg-coral",
+									style: { width: `${player.xp / (player.level * 60) * 100}%` }
+								})
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+								className: "mt-2 text-xs text-muted tabular-nums",
+								children: [
+									player.xp,
+									"/",
+									player.level * 60,
+									" XP · HP ",
+									player.hp,
+									"/",
+									player.maxHp
+								]
+							})
+						]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "rounded-[var(--radius-xl)] border border-line bg-card p-5",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "text-xs font-medium tracking-wide text-muted uppercase",
+								children: "Current quest"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "mt-3 font-display text-lg leading-snug",
+								children: quest ? quest.title : "No story yet"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "mt-2 text-sm text-muted",
+								children: quest ? `${quest.chapters.length} chapters · ${quest.questions.length} challenges` : "Open Storyteller, add notes, then transform."
+							}),
+							stress.on && stress.level >= 72 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "mt-2 text-xs text-danger",
+								children: "Pulse is up — take a breath before the farm."
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: () => setTab(quest ? "rpg" : "story"),
+								className: "mt-4 rounded-full bg-ink px-4 py-2 text-sm font-medium text-paper",
+								children: quest ? "Continue on the farm" : "Open Storyteller"
+							})
+						]
+					})
+				]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(StressSensorCard, {})
+		]
 	});
 }
 var GAME_KEYS = /* @__PURE__ */ new Set([
@@ -1013,6 +1824,8 @@ function FarmGame() {
 	questionsRef.current = questions;
 	const player = useAppStore((s) => s.player);
 	const setPlayer = useAppStore((s) => s.setPlayer);
+	const stress = useAppStore((s) => s.stress);
+	const musicPlaying = useAppStore((s) => s.musicPlaying);
 	const [combat, setCombat] = (0, import_react.useState)(null);
 	const combatRef = (0, import_react.useRef)(null);
 	combatRef.current = combat;
@@ -1192,6 +2005,14 @@ function FarmGame() {
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "text-xs text-muted md:hidden",
 				children: "Use the pad or drag on the left side of the farm to walk."
+			}),
+			stress.on && stress.level >= 72 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+				className: "rounded-[var(--radius-md)] border border-line bg-paper-2 px-3 py-2 text-sm",
+				children: [
+					"Pulse is up. ",
+					musicPlaying ? "Calm music is playing. " : "",
+					"Walk slowly and breathe out longer than in."
+				]
 			}),
 			combat && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center",
@@ -1593,6 +2414,7 @@ function Storyteller() {
 	};
 	const startCam = async () => {
 		try {
+			if (useAppStore.getState().stress.on) await stressEngine.stop();
 			const stream = await navigator.mediaDevices.getUserMedia({
 				video: {
 					facingMode: "environment",
@@ -1936,17 +2758,15 @@ function AppShell() {
 	const setTab = useAppStore((s) => s.setTab);
 	(0, import_react.useEffect)(() => {
 		hydrateAppStore();
+		return calmMusic.attach();
 	}, []);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "flex min-h-dvh flex-col bg-paper text-ink",
 		children: [
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", {
-				className: "sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-card/80 px-4 py-2 backdrop-blur",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-					className: "rounded-full bg-leaf/15 px-3 py-1 text-xs font-medium text-leaf",
-					children: "Valley calm"
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-					className: "text-xs text-muted",
+				className: "sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-card/80 px-3 py-2 backdrop-blur sm:px-4",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(StressBar, {}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "hidden text-xs text-muted lg:inline",
 					children: "Walk, read, remember."
 				})]
 			}),

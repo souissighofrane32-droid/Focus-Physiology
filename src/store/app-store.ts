@@ -18,6 +18,14 @@ export type PlayerStats = {
   zones: number;
 };
 
+export type StressState = {
+  on: boolean;
+  level: number;
+  bpm: number | null;
+  label: "off" | "warming" | "calm" | "steady" | "elevated" | "high" | "need-light";
+  face: boolean;
+};
+
 type AppState = {
   tab: TabId;
   setTab: (t: TabId) => void;
@@ -39,6 +47,14 @@ type AppState = {
       | AppState["pomodoro"]
       | ((prev: AppState["pomodoro"]) => AppState["pomodoro"]),
   ) => void;
+  stress: StressState;
+  setStress: (s: StressState) => void;
+  musicPlaying: boolean;
+  setMusicPlaying: (v: boolean) => void;
+  musicMuted: boolean;
+  setMusicMuted: (v: boolean) => void;
+  musicManual: boolean;
+  setMusicManual: (v: boolean) => void;
 };
 
 const STORAGE_KEY = "focus-physiology-v1";
@@ -57,6 +73,14 @@ const defaultTasks: TaskItem[] = [
   { id: "2", title: "Renal physiology", status: "progress" },
   { id: "3", title: "Neurotransmitters", status: "mastered" },
 ];
+
+const defaultStress: StressState = {
+  on: false,
+  level: 0,
+  bpm: null,
+  label: "off",
+  face: false,
+};
 
 export const useAppStore = create<AppState>((set) => ({
   tab: "story",
@@ -78,6 +102,14 @@ export const useAppStore = create<AppState>((set) => ({
   pomodoro: { m: 25, s: 0, run: false },
   setPomodoro: (p) =>
     set((s) => ({ pomodoro: typeof p === "function" ? p(s.pomodoro) : p })),
+  stress: defaultStress,
+  setStress: (stress) => set({ stress }),
+  musicPlaying: false,
+  setMusicPlaying: (musicPlaying) => set({ musicPlaying }),
+  musicMuted: false,
+  setMusicMuted: (musicMuted) => set({ musicMuted }),
+  musicManual: false,
+  setMusicManual: (musicManual) => set({ musicManual }),
 }));
 
 export function hydrateAppStore() {

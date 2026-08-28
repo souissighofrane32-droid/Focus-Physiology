@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { BookOpen, Camera, FileText, Loader2, ScrollText, Upload } from "lucide-react";
 import { extractPdfText } from "@/lib/pdf-text";
 import { extractNotesFromImage, generateQuest, localQuestFromNotes } from "@/lib/quest";
+import { stressEngine } from "@/lib/stress-engine";
 import { useAppStore } from "@/store/app-store";
 
 type Mode = "paste" | "upload" | "camera";
@@ -37,6 +38,7 @@ export function Storyteller() {
 
   const startCam = async () => {
     try {
+      if (useAppStore.getState().stress.on) await stressEngine.stop();
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment", width: 640, height: 480 },
         audio: false,

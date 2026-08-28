@@ -43,6 +43,8 @@ export function FarmGame() {
   questionsRef.current = questions;
   const player = useAppStore((s) => s.player);
   const setPlayer = useAppStore((s) => s.setPlayer);
+  const stress = useAppStore((s) => s.stress);
+  const musicPlaying = useAppStore((s) => s.musicPlaying);
   const [combat, setCombat] = useState<CombatState | null>(null);
   const combatRef = useRef<CombatState | null>(null);
   combatRef.current = combat;
@@ -172,6 +174,12 @@ export function FarmGame() {
       <p className="text-xs text-muted md:hidden">
         Use the pad or drag on the left side of the farm to walk.
       </p>
+      {stress.on && stress.level >= 72 && (
+        <p className="rounded-[var(--radius-md)] border border-line bg-paper-2 px-3 py-2 text-sm">
+          Pulse is up. {musicPlaying ? "Calm music is playing. " : ""}
+          Walk slowly and breathe out longer than in.
+        </p>
+      )}
 
       {combat && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center">
